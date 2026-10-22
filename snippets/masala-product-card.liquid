@@ -1,1 +1,144 @@
+{%- comment -%}
+  Snippet: masala-product-card
+  ------------------------------------------------------------------
+  Renders a single real Shopify product as a selectable spice card.
+  Expects locals: product, section, s (section.settings)
+
+  Weight options: looked up from the variant option whose name matches
+  s.weight_option_name (default "Weight"), case-insensitively. If the
+  product has no such option, a plain quantity-only Add control is shown
+  for the product's first available variant instead.
+
+  All data needed by JS is embedded as a single JSON island per card
+  (script type="application/json") so the front end never has to re-fetch
+  product data for cards rendered on the initial page load.
+{%- endcomment -%}
+
+{%- liquid
+  assign weight_option_name = s.weight_option_name | default: 'Weight' | downcase
+  assign weight_option_index = -1
+  for option in product.options_with_values
+    assign option_name_downcase = option.name | downcase
+    if option_name_downcase == weight_option_name
+      assign weight_option_index = forloop.index0
+    endif
+  endfor
+
+  assign regional_name = ''
+  if s.show_regional_name and s.regional_name_namespace != blank and s.regional_name_key != blank
+    assign regional_name = product.metafields[s.regional_name_namespace][s.regional_name_key].value
+  endif
+
+  assign card_image = product.featured_image
+  assign aspect_ratio = s.image_aspect_ratio | default: '1/1'
+  assign safe_image_ratio = card_image.aspect_ratio | default: 1.0
+  if safe_image_ratio == 0
+    assign safe_image_ratio = 1.0
+  endif
+-%}
+
+<div
+  class="mbb-card{% unless product.available %} mbb-card--soldout{% endunless %}"
+  role="listitem"
+  data-mbb-product-card
+  data-product-id="{{ product.id }}"
+  data-product-title="{{ product.title | escape }}"
+  data-product-handle="{{ product.handle }}"
+  data-product-available="{{ product.available }}"
+>
+  <div class="mbb-card__media" style="--mbb-aspect-ratio: {{ aspect_ratio }};">
+    {%- if card_image -%}
+      <img
+        class="mbb-card__image"
+        src="{{ card_image | image_url: width: 400 }}"
+        srcset="{{ card_image | image_url: width: 200 }} 200w, {{ card_image | image_url: width: 400 }} 400w, {{ card_image | image_url: width: 600 }} 600w"
+        sizes="(min-width: 1000px) 220px, 45vw"
+        alt="{{ card_image.alt | default: product.title | escape }}"
+        loading="lazy"
+        width="400"
+        height="{{ 400 | divided_by: safe_image_ratio | round }}"
+      >
+    {%- else -%}
+      <div class="mbb-card__image mbb-card__image--placeholder" aria-hidden="true"></div>
+    {%- endif -%}
+    {%- unless product.available -%}
+      <span class="mbb-card__badge">Sold out</span>
+    {%- endunless -%}
+    <span class="mbb-card__added-badge mbb-visually-hidden" data-mbb-added-badge>Added ✓</span>
+  </div>
+
+  <div class="mbb-card__body">
+    <h4 class="mbb-card__title">{{ product.title }}</h4>
+    {%- if s.show_regional_name and regional_name != blank -%}
+      <p class="mbb-card__regional-name">{{ regional_name }}</p>
+    {%- endif -%}
+
+    {%- if s.show_weight_selectors and weight_option_index > -1 -%}
+      <div class="mbb-card__weights" role="group" aria-label="Select weight for {{ product.title | escape }}" data-mbb-weight-group>
+        {%- assign seen_weights = '' -%}
+        {%- for variant in product.variants -%}
+          {%- assign weight_value = variant.options[weight_option_index] -%}
+          {%- assign marker = weight_value | append: '|' -%}
+          {%- unless seen_weights contains marker -%}
+            {%- assign seen_weights = seen_weights | append: marker -%}
+            <button
+              type="button"
+              class="mbb-weight-pill{% if forloop.first %} mbb-weight-pill--default{% endif %}{% unless variant.available %} mbb-weight-pill--disabled{% endunless %}"
+              data-mbb-weight-pill
+              data-variant-id="{{ variant.id }}"
+              data-weight-label="{{ weight_value | escape }}"
+              {% unless variant.available %}disabled aria-disabled="true"{% endunless %}
+              aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}"
+            >
+              {{ weight_value }}{% unless variant.available %} <span class="mbb-visually-hidden">(sold out)</span>{% endunless %}
+            </button>
+          {%- endunless -%}
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+
+    <div class="mbb-card__footer">
+      {%- if weight_option_index == -1 -%}
+        <div class="mbb-card__qty" data-mbb-card-qty>
+          <button type="button" class="mbb-qty-btn" data-mbb-card-qty-decrease aria-label="Decrease quantity">−</button>
+          <span class="mbb-qty-value" data-mbb-card-qty-value aria-live="polite">1</span>
+          <button type="button" class="mbb-qty-btn" data-mbb-card-qty-increase aria-label="Increase quantity">+</button>
+        </div>
+      {%- endif -%}
+      <button
+        type="button"
+        class="mbb-btn mbb-btn--add"
+        data-mbb-add-btn
+        {% unless product.available %}disabled aria-disabled="true"{% endunless %}
+      >
+        <span data-mbb-add-btn-label>{% if product.available %}Add{% else %}Sold out{% endif %}</span>
+        <span class="mbb-spinner mbb-visually-hidden" data-mbb-add-btn-spinner aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+
+  <script type="application/json" data-mbb-product-data>
+    {
+      "id": {{ product.id | json }},
+      "title": {{ product.title | json }},
+      "handle": {{ product.handle | json }},
+      "available": {{ product.available | json }},
+      "regionalName": {{ regional_name | json }},
+      "weightOptionIndex": {{ weight_option_index | json }},
+      "image": {{ card_image | image_url: width: 400 | json }},
+      "variants": [
+        {%- for variant in product.variants -%}
+          {
+            "id": {{ variant.id | json }},
+            "title": {{ variant.title | json }},
+            "available": {{ variant.available | json }},
+            "price": {{ variant.price | json }},
+            "compareAtPrice": {{ variant.compare_at_price | json }},
+            "weightLabel": {% if weight_option_index > -1 %}{{ variant.options[weight_option_index] | json }}{% else %}null{% endif %}
+          }{% unless forloop.last %},{% endunless %}
+        {%- endfor -%}
+      ]
+    }
+  </script>
+
 
